@@ -10,10 +10,11 @@ set(
 
 include(${CMAKE_SOURCE_DIR}/cmake/ovm_io.cmake)
 
-file(GLOB SRCFILES src/*.cpp )
-include_directories(include)
+# file(GLOB SRCFILES src/*.cpp )
+# include_directories(include)
 
 add_subdirectory(ext/geogram)
+add_subdirectory(ext/OpenVolumeMesh)
 
 add_executable(ovm.io ${SRCFILES} app/ovm.io.cpp)
-target_link_libraries(ovm.io geogram)
+target_link_libraries(ovm.io geogram OpenVolumeMesh::OpenVolumeMesh)
