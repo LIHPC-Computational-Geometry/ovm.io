@@ -1,0 +1,4 @@
+[submodule "ext/geogram"]
+	path = ext/geogram
+	url = https://github.com/BrunoLevy/geogram
+	ignore = untracked
