@@ -1,11 +1,12 @@
 // based on https://github.com/LIHPC-Computational-Geometry/genomesh/blob/main/apps/ovm_to_mesh.cpp
 
-#include <geogram/basic/logger.h>       // for Logger::*
-#include <geogram/basic/vecg.h>         // for vecng<>
-#include <geogram/basic/geometry.h>     // for vec3
-#include <geogram/basic/file_system.h>  // for extension()
-#include <geogram/mesh/mesh.h>          // for Mesh
-#include <geogram/mesh/mesh_io.h>       // for mesh_load(), mesh_save()
+#include <geogram/basic/logger.h>               // for Logger::*
+#include <geogram/basic/vecg.h>                 // for vecng<>
+#include <geogram/basic/geometry.h>             // for vec3
+#include <geogram/basic/file_system.h>          // for extension()
+#include <geogram/mesh/mesh.h>                  // for Mesh
+#include <geogram/mesh/mesh_io.h>               // for mesh_load(), mesh_save()
+#include <geogram/basic/command_line_args.h>    // for import_arg_group()
 
 #include <OpenVolumeMesh/FileManager/FileManager.hh>
 #include <OpenVolumeMesh/Mesh/HexahedralMesh.hh>
@@ -30,6 +31,7 @@ typedef vecng<8,int> vec8i;
 int main(int argc, char** argv) {
 
     GEO::initialize();
+    CmdLine::import_arg_group("sys"); // declares sys:compression_level, needed by mesh_save() for .geogram files
 
     if (argc != 3) {
         Logger::err("I/O") << "Wrong usage" << std::endl;
@@ -43,10 +45,10 @@ int main(int argc, char** argv) {
     Mesh input_mesh;
 
     ///////////////////////////////////////////////
-    // Load input mesh and fill a GEO::Mesh
+    // Load input mesh and fill a GEO::Mesh (input_mesh)
     ///////////////////////////////////////////////
 
-    if(FileSystem::extension(input_path) == "ovm") {
+    if(FileSystem::extension(input_path) == "ovm") { // input is in OVM format -> convert to GEO::Mesh
         // assert mesh is an hexahedral mesh
 
         // Create an empty mesh object
@@ -55,15 +57,19 @@ int main(int argc, char** argv) {
         OpenVolumeMesh::IO::FileManager fileManager;
         fileManager.readFile(input_path, input_ovm_mesh);
 
-        std::vector<vec3> vertices(input_ovm_mesh.n_vertices());
-        std::vector<vec8i> hexahedra(input_ovm_mesh.n_cells());
+        input_mesh.vertices.create_vertices(input_ovm_mesh.n_vertices());
+        input_mesh.cells.create_hexes(input_ovm_mesh.n_cells());
 
         int i=0;
         for (OpenVolumeMesh::VertexIter viter = input_ovm_mesh.v_iter(); viter.valid(); ++viter) {
             auto v = input_ovm_mesh.vertex(*viter);
-            vertices[i].x = v[0];
-            vertices[i].y = v[1];
-            vertices[i].z = v[2];
+            // An explicit definition of the convertion
+            // from OpenVolumeMesh::Geometry::Vec3d to GEO::vec3,
+            // or even better : from OpenVolumeMesh::Geometry::VectorT<T,DIM> to GEO::vecg<T,DIM>
+            // would be great
+            input_mesh.vertices.point(i).x = v[0];
+            input_mesh.vertices.point(i).y = v[1];
+            input_mesh.vertices.point(i).z = v[2];
             i++;
         }
 
@@ -72,6 +78,7 @@ int main(int argc, char** argv) {
         // Iterate over the hexahedra in the same sheet that are adjacent
         // to the reference hexahedron (cell handle ch)
         
+        vec8i ovm_hex_vertices;
         int row=0;
         for (OpenVolumeMesh::CellIter citer = input_ovm_mesh.c_iter(); citer.valid(); ++citer){
             OpenVolumeMesh::CellHandle ch = *(citer);
@@ -81,11 +88,12 @@ int main(int argc, char** argv) {
                 // Now dereferencing csc_it returns a cell handle
                 OpenVolumeMesh::VertexHandle ch2 = *hiter;
                 int id = ch2.idx();
-                hexahedra[row][j] = id;
+                ovm_hex_vertices[j] = id;
                 j++;
             }
 
-            // swap vertex 1 and 3
+            // swap some vertices
+            //
             // because OVM convention is
             //       5-------6
             //      /|      /|
@@ -95,58 +103,32 @@ int main(int argc, char** argv) {
             //    | /     | /
             //    |/      |/
             //    0-------1
-            // and MEDIT (.mesh) convention is
-            //       5-------6
-            //      /|      /|
-            //     / |     / |
-            //    1-------2  |
-            //    |  4----|--7
-            //    | /     | /
-            //    |/      |/
-            //    0-------3
+            //
+            // and Geogram convention is
+            //        4-------6
+            //       /|      /|
+            //      / |     / |
+            //     0-------2  |
+            //     |  5----|--7
+            //     | /     | /
+            //     |/      |/
+            //     1-------3
 
-            int tmp = hexahedra[row][1];
-            hexahedra[row][1] = hexahedra[row][3];
-            hexahedra[row][3] = tmp;
+            input_mesh.cells.set_vertex(row,0,ovm_hex_vertices[3]);
+            input_mesh.cells.set_vertex(row,1,ovm_hex_vertices[0]);
+            input_mesh.cells.set_vertex(row,2,ovm_hex_vertices[2]);
+            input_mesh.cells.set_vertex(row,3,ovm_hex_vertices[1]);
+            input_mesh.cells.set_vertex(row,4,ovm_hex_vertices[5]);
+            input_mesh.cells.set_vertex(row,5,ovm_hex_vertices[4]);
+            input_mesh.cells.set_vertex(row,6,ovm_hex_vertices[6]);
+            input_mesh.cells.set_vertex(row,7,ovm_hex_vertices[7]);
 
             row++;
         }
 
-        // Write output .mesh hex-mesh
-        // based on https://github.com/LIHPC-Computational-Geometry/genomesh/blob/main/src/dot_mesh_io.cpp
-        // TODO : fill a GEO::Mesh, allowing to write (GEO::mesh_save()) as .geogram, .mesh, .meshb
-
-        std::cout << "Saving hex mesh: " << output_path << std::endl;
-
-        std::ofstream out_mesh;
-        out_mesh.open(output_path);
-
-        out_mesh << "MeshVersionFormatted 1\n";
-        out_mesh << "Dimension\n3\n";
-
-        out_mesh << "Vertices\n";
-        out_mesh << vertices.size() << "\n";
-        FOR(v,vertices.size()) { // for each vertex
-            out_mesh << vertices[v].x << " " << vertices[v].y << " " << vertices[v].z << " 0\n";
-        }
-
-        out_mesh << "Hexahedra\n";
-        out_mesh << hexahedra.size() << "\n";
-        
-        FOR(h,hexahedra.size()) { // for each hexahedron
-            FOR(v,8) { // for each vertex of the current hexahedron
-                // Warning : .mesh indices start at 1, not 0
-                out_mesh << hexahedra[h][v] + 1 << " ";
-            }
-            out_mesh << " 0\n";
-        }
-
-        out_mesh << "End\n";
-        out_mesh.close();
-
-        return 0;
+        // TODO transfert attributes from OVM to Geogram
     }
-    else {
+    else { // try to directly load a GEO::Mesh
         if(!mesh_load(input_path,input_mesh)) {
             Logger::err("I/O") << "Unable to open " << input_path << " with Geogram" << std::endl;
             return 1;
@@ -157,8 +139,8 @@ int main(int argc, char** argv) {
     // Save output mesh
     ///////////////////////////////////////////////
 
-    if(FileSystem::extension(output_path) == "ovm") {
-
+    if(FileSystem::extension(output_path) == "ovm") { // output is in OVM format -> convert from GEO::Mesh
+        // assert mesh is a tetrahedral mesh
         geo_assert(input_mesh.cells.nb()!=0); // must be a volume mesh
         geo_assert(input_mesh.cells.are_simplices()); // must only contain tetrahedra
 
@@ -227,7 +209,7 @@ int main(int argc, char** argv) {
         fileManager.writeFile(output_path,output_ovm_mesh);
 
     }
-    else {
+    else { // try to directly write a GEO::Mesh
         if(!mesh_save(input_mesh,output_path)) {
             Logger::err("I/O") << "Unable to export to " << output_path << " with Geogram" << std::endl;
             return 1;
