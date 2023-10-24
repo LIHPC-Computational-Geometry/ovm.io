@@ -35,7 +35,7 @@ int main(int argc, char** argv) {
 
     if (argc != 3) {
         Logger::err("I/O") << "Wrong usage" << std::endl;
-        Logger::err("I/O") << "ex: ./ovm.io path/to/input.ovm path/to/output.mesh" << std::endl;
+        Logger::err("I/O") << "ex: ./ovm.io path/to/input/mesh path/to/output/mesh" << std::endl;
         return 1;
     }
 
